@@ -11,7 +11,9 @@ from __future__ import annotations
 import unittest
 from collections.abc import Callable
 from datetime import date, datetime, timedelta
+from unittest.mock import Mock
 
+from bd1.eurecia import eurecia_days_from_report
 from bd1.formatting import format_duration
 from bd1.models import (
     WEEKLY_DECLARATION_TARGET_SECONDS,
@@ -23,6 +25,7 @@ from bd1.models import (
 )
 from bd1.report_window import (
     ReportView,
+    ReportWindow,
     _focus_report_window,
     _is_latest,
     _move_workday,
@@ -74,6 +77,16 @@ class ReportWindowHelpersTest(unittest.TestCase):
         _focus_report_window(root, dock)
 
         self.assertEqual(["show", "deiconify", "lift", "focus"], events)
+
+    def test_close_does_not_terminate_a_report_process(self) -> None:
+        window = ReportWindow.__new__(ReportWindow)
+        window._process = Mock(is_alive=Mock(return_value=True))
+        window._commands = Mock()
+
+        window.close()
+
+        window._process.join.assert_called_once_with()
+        window._process.terminate.assert_not_called()
 
     def test_week_view_normalizes_to_monday(self) -> None:
         self.assertEqual(
@@ -207,6 +220,132 @@ class ReportWindowHelpersTest(unittest.TestCase):
             enabled_text.rendered(),
         )
         self.assertNotIn("Déclaration proposée", enabled_text.rendered())
+
+    def test_eurecia_export_uses_the_displayed_work_segments_and_empty_days(self) -> None:
+        monday = DailyReport(
+            date="2026-07-06",
+            observations=(
+                Observation(
+                    datetime.fromisoformat("2026-07-06T08:55:00+02:00"),
+                    ObservationType.APP_STARTED,
+                    {
+                        "intranet_resolved": True,
+                        "network_interface": "OpenVPN Data Channel Offload",
+                    },
+                ),
+            ),
+            work_blocks=(
+                TimeBlock(
+                    "work",
+                    datetime.fromisoformat("2026-07-06T09:00:30+02:00"),
+                    datetime.fromisoformat("2026-07-06T12:00:30+02:00"),
+                ),
+                TimeBlock(
+                    "work",
+                    datetime.fromisoformat("2026-07-06T14:00:00+02:00"),
+                    datetime.fromisoformat("2026-07-06T18:00:00+02:00"),
+                ),
+            ),
+            break_blocks=(),
+            anomalies=(),
+        )
+        tuesday = DailyReport("2026-07-07", (), (), (), ())
+
+        days = eurecia_days_from_report(WeeklyReport("2026-07-06", (monday, tuesday)))
+
+        self.assertEqual(
+            (("09:00", "12:00"), ("14:00", "18:00")),
+            tuple((segment.start, segment.end) for segment in days[0].segments),
+        )
+        self.assertEqual((), days[1].segments)
+        self.assertEqual("Télétravail/Remote", days[0].comment)
+        self.assertEqual("", days[1].comment)
+
+    def test_eurecia_export_ignores_a_work_block_within_one_minute(self) -> None:
+        day = DailyReport(
+            "2026-09-02",
+            (),
+            (
+                TimeBlock(
+                    "work",
+                    datetime.fromisoformat("2026-09-02T08:20:19+02:00"),
+                    datetime.fromisoformat("2026-09-02T08:20:42+02:00"),
+                ),
+            ),
+            (),
+            (),
+        )
+
+        exported = eurecia_days_from_report(WeeklyReport("2026-08-31", (day,)))
+
+        self.assertEqual((), exported[0].segments)
+
+    def test_eurecia_export_prefers_an_office_signal_over_a_remote_signal(self) -> None:
+        day = DailyReport(
+            "2026-07-06",
+            (
+                Observation(
+                    datetime.fromisoformat("2026-07-06T08:55:00+02:00"),
+                    ObservationType.APP_STARTED,
+                    {
+                        "intranet_resolved": True,
+                        "network_interface": "OpenVPN Data Channel Offload",
+                    },
+                ),
+                Observation(
+                    datetime.fromisoformat("2026-07-06T09:05:00+02:00"),
+                    ObservationType.APP_STARTED,
+                    {"intranet_resolved": True, "network_interface": "Ethernet"},
+                ),
+            ),
+            (
+                TimeBlock(
+                    "work",
+                    datetime.fromisoformat("2026-07-06T09:00:00+02:00"),
+                    datetime.fromisoformat("2026-07-06T17:00:00+02:00"),
+                ),
+            ),
+            (),
+            (),
+        )
+
+        self.assertEqual(
+            "",
+            eurecia_days_from_report(WeeklyReport("2026-07-06", (day,)))[0].comment,
+        )
+
+    def test_eurecia_export_caps_a_day_at_ten_hours_with_a_warning(self) -> None:
+        wednesday = DailyReport(
+            "2026-08-19",
+            (),
+            (
+                TimeBlock(
+                    "work",
+                    datetime.fromisoformat("2026-08-19T07:49:00+02:00"),
+                    datetime.fromisoformat("2026-08-19T12:37:00+02:00"),
+                ),
+                TimeBlock(
+                    "work",
+                    datetime.fromisoformat("2026-08-19T14:00:00+02:00"),
+                    datetime.fromisoformat("2026-08-19T19:16:00+02:00"),
+                ),
+            ),
+            (),
+            (),
+        )
+        warnings: list[str] = []
+
+        days = eurecia_days_from_report(
+            WeeklyReport("2026-08-17", (wednesday,)),
+            warning=warnings.append,
+        )
+
+        self.assertEqual(10 * 3600, days[0].worked_seconds)
+        self.assertEqual("19:12", days[0].segments[-1].end)
+        self.assertEqual(
+            ["2026-08-19 : temps de 10 h 04 plafonné à 10 h 00 pour respecter le maximum Eurecia."],
+            warnings,
+        )
 
 
 class FakeRoot:

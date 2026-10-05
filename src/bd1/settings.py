@@ -18,6 +18,7 @@ from bd1.paths import settings_path
 DEFAULT_LUNCH_AUTOMATIC_WORK_RESUME_TIME = "13:58"
 LUNCH_AUTOMATIC_WORK_RESUME_TIME_MIN = "12:00"
 LUNCH_AUTOMATIC_WORK_RESUME_TIME_MAX = "14:00"
+DEFAULT_IDLE_THRESHOLD_MINUTES = 16
 DEFAULT_WEEKLY_CAP_HOURS = 37
 DEFAULT_VPN_INTERFACE_PATTERNS = (
     "tun*",
@@ -32,9 +33,10 @@ DEFAULT_VPN_INTERFACE_PATTERNS = (
 
 @dataclass(frozen=True, slots=True)
 class Settings:
-    idle_threshold_minutes: int = 16
+    idle_threshold_minutes: int = DEFAULT_IDLE_THRESHOLD_MINUTES
     autostart_enabled: bool = False
     notifications_enabled: bool = True
+    update_checks_enabled: bool = True
     icon_theme: str = "head-small"
     activity_poll_seconds: float = 10.0
     heartbeat_interval_seconds: float = 300.0
@@ -44,6 +46,8 @@ class Settings:
     weekly_cap_hours: int = DEFAULT_WEEKLY_CAP_HOURS
     mattermost_url: str = ""
     vpn_interface_patterns: tuple[str, ...] = DEFAULT_VPN_INTERFACE_PATTERNS
+    eurecia_base_url: str = ""
+    eurecia_email: str = ""
 
     @property
     def idle_threshold_seconds(self) -> int:
@@ -73,7 +77,7 @@ def load_settings(path: Path | None = None) -> Settings:
         names = data[key]
         if isinstance(names, str):
             names = (names,)
-        elif not isinstance(names, (list, tuple)):
+        elif not isinstance(names, list | tuple):
             names = DEFAULT_VPN_INTERFACE_PATTERNS if key == "vpn_interface_patterns" else ()
         data[key] = tuple(str(name) for name in names if str(name))
         if key == "vpn_interface_patterns" and not data[key]:

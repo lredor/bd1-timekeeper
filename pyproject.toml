@@ -12,7 +12,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "bd1"
-version = "0.1.0"
+version = "0.2.2"
 description = "Local desktop companion that suggests worked time from activity observations."
 readme = "README.md"
 requires-python = ">=3.13"
@@ -54,6 +54,7 @@ build = [
 
 [project.scripts]
 bd1 = "bd1.__main__:main"
+bd1-eurecia = "bd1.eurecia:main"
 
 [project.urls]
 Homepage = "https://github.com/Obeo/bd1-timekeeper"

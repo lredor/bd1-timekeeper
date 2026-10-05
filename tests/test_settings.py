@@ -24,6 +24,9 @@ from bd1.settings import (
 
 
 class SettingsTest(unittest.TestCase):
+    def test_update_checks_are_enabled_by_default(self) -> None:
+        self.assertTrue(Settings().update_checks_enabled)
+
     def test_round_trips_idle_ignored_process_names(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "settings.json"
@@ -78,6 +81,24 @@ class SettingsTest(unittest.TestCase):
             loaded = load_settings(path)
 
         self.assertEqual(20, loaded.weekly_cap_hours)
+
+    def test_round_trips_eurecia_connection_without_a_password(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "settings.json"
+            save_settings(
+                Settings(
+                    eurecia_base_url="https://tenant.example/eurecia/",
+                    eurecia_email="user@example.com",
+                ),
+                path,
+            )
+
+            loaded = load_settings(path)
+            raw = json.loads(path.read_text(encoding="utf-8"))
+
+        self.assertEqual("https://tenant.example/eurecia/", loaded.eurecia_base_url)
+        self.assertEqual("user@example.com", loaded.eurecia_email)
+        self.assertNotIn("password", raw)
 
     def test_invalid_weekly_cap_hours_keeps_default(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
